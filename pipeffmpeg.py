@@ -54,7 +54,7 @@ def _attempt_ffmpeg():
 def get_pipe2(option=None):
     '''get pipes from ffmpeg process'''
     _attempt_ffmpeg()
-    cmd = FFMPEG_BIN
+    cmd = [FFMPEG_BIN]
     if option:
         if type(option) == str:
             cmd.append(option)
@@ -83,10 +83,12 @@ def get_pipe3(option=None):
         stderr=sp.PIPE,
     )
 
-def _plugins_gen(option, sep=' ------'):
+def _plugins_gen(option, sep=' ------', stdpipe='stderr'):
     p = get_pipe3(option)
     first_skip = True
-    for line in p.stderr.readlines():
+    if stdpipe == 'stderr': stdpipe = p.stderr
+    if stdpipe == 'stdout': stdpipe = p.stdout
+    for line in stdpipe.readlines():
         line = line.rstrip()
         if first_skip:
             if line[:len(sep)] == sep: first_skip = False
@@ -114,7 +116,7 @@ class Codec:
 def get_codecs():
     '''get codecs for ffmpeg'''
     result = {}
-    for line in _plugins_gen('-codecs', sep=' ------'):
+    for line in _plugins_gen('-codecs', sep=' ------', stdpipe='stdout'):
         result[line[8:]] = Codec(line)
     return result
 
@@ -135,7 +137,7 @@ class Format:
 def get_formats():
     '''get codecs for ffmpeg'''
     result = {}
-    for line in _plugins_gen('-formats', sep=' --'):
+    for line in _plugins_gen('-formats', sep=' --', stdpipe='stdout'):
         result[line[4:]] = Format(line)
     return result
 
@@ -160,7 +162,7 @@ class PixelFormat:
 def get_pixel_formats():
     '''get pix_fmts for ffmpeg'''
     result = {}
-    for line in _plugins_gen('-pix_fmts', sep='-----'):
+    for line in _plugins_gen('-pix_fmts', sep='-----', stdpipe='stdout'):
         pix = PixelFormat(line)
         result[pix.name] = pix
     return result
@@ -312,5 +314,9 @@ def get_info(path_of_video):
 
 
 if __name__ == '__main__':
-    print get_info('eriko.mp4')
-    print get_ffmpeg_version()
+    print 'version:', get_ffmpeg_version()
+    print 'info:', get_ffmpeg_info()
+    print 'codecs:', get_codecs()
+    print 'formats:', get_formats()
+    print 'pix_fmts:', get_pixel_formats()
+    print 'info of video:', get_info('test.mp4')
