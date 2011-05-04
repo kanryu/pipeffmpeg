@@ -3,7 +3,7 @@ A frontend for ffmpeg using only pipes, not under GPL, but under BSD license.
 You can install and test pipeffmpeg as follows:
 
 	1. download libav(ffmpeg) binary or source and build that
-	   (not necessary as shared-libarary).
+	   (not necessary as shared-library).
 
 	2. set bin/ffmpeg or ffmpeg.exe(under Windows) into PATH environment
 
