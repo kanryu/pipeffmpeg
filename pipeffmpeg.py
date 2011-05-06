@@ -11,8 +11,10 @@
 ##################################################################################
 #
 #    TODO:
-#       * decode each frame of video stream to stdout(python get it in callback)
 #       * encode each frame from stdin(python push it in callback)
+#         * currently, ffmpeg's image2pipe demuxer is very poor stability. so..
+#             a) to put mjpeg(JPEG) on ffmpeg's pipe for each frame
+#             b) all frame save to disk and read directly on the block by ffmpeg
 #       * transcode to other codec which has ffmpeg-command
 #       * support audio-stream
 #
@@ -86,8 +88,9 @@ def get_pipe3(option=None):
 def _plugins_gen(option, sep=' ------', stdpipe='stderr'):
     p = get_pipe3(option)
     first_skip = True
-    if stdpipe == 'stderr': stdpipe = p.stderr
+    if stdpipe == 'stdin': stdpipe = p.stdin
     if stdpipe == 'stdout': stdpipe = p.stdout
+    if stdpipe == 'stderr': stdpipe = p.stderr
     for line in stdpipe.readlines():
         line = line.rstrip()
         if first_skip:
@@ -311,7 +314,111 @@ def get_info(path_of_video):
 
     return dict(metadata=metadata, duration=duration)
 
+import numpy
+from PIL import Image
+import BmpImagePlugin
 
+import ctypes
+
+#from ctypes import *
+
+class BitmapFileHeader(ctypes.LittleEndianStructure):
+    _pack_ = 2
+    _fields_ = [
+        ('bfType', ctypes.c_int16),
+        ('bfSize', ctypes.c_int32),
+        ('bfRsv1', ctypes.c_int16),
+        ('bfRsv2', ctypes.c_int16),
+        ('bfOffBits', ctypes.c_int32),
+    ]
+
+def sread(fd,cobj):
+    ctypes.memmove(ctypes.pointer(cobj),ctypes.c_char_p(fd.read(ctypes.sizeof(cobj))),ctypes.sizeof(cobj))
+
+import cStringIO as StringIO
+
+class InputVideoStream:
+    def __init__(self, path=None):
+        self.rate = 15
+        self.vcodec = 'rawvideo'
+        self.filepath = 'test.mp4'
+        self.frames = 10
+    def open(self, path):
+        cmd = [
+            FFMPEG_BIN,
+            '-i', self.filepath,
+            '-f', 'image2pipe',
+            '-vcodec', 'bmp',
+            '-' # it means output to pipe
+        ]
+        p = sp.Popen(
+            " ".join(cmd),
+            stdin=sp.PIPE,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        pathformat = "%04d.bmp"
+        i = 0
+        while True:
+            path = pathformat % i
+            
+            bmfheader = BitmapFileHeader()
+            sread(p.stdout, bmfheader)
+            if bmfheader.bfType != 0x4d42:
+                break
+            # reconvert to python string
+            bmp = ctypes.string_at(ctypes.pointer(bmfheader), ctypes.sizeof(bmfheader))
+            # BitmapFileHeader and rest data
+            bmp += p.stdout.read(bmfheader.bfSize - ctypes.sizeof(bmfheader))
+            image = Image.open(StringIO.StringIO(bmp))
+            image.save(path)
+            i += 1
+        p.stdin.close()
+        del p
+
+#class OutVideoStream:
+#    def __init__(self, path=None):
+#        self.rate = 15
+#        self.vcodec = 'bmp'
+#        self.filepath = 'test.avi'
+#        self.frames = 10
+#    def open(self, path):
+#        self.filepath = path
+#        cmd = [
+#            FFMPEG_BIN,
+#            '-y',
+#            '-r', '15',
+#            '-f', 'image2pipe',
+#            '-vcodec', 'bmp',
+#            '-bufsize', '3000000',
+#            '-i', '-', 
+#            '-vf', 'vflip',
+#            '-vcodec', 'rawvideo',
+#            self.filepath,
+#        ]
+#        p = sp.Popen(
+#            " ".join(cmd),
+#            stdin=sp.PIPE,
+#            stdout=sp.PIPE,
+##            stderr=sp.PIPE,
+#        )
+#        pathformat = "%04d.bmp"
+#        frames = 10
+#        for i in range(frames):
+#            path = pathformat % i
+#            image = Image.open(path)
+#            print path, image
+##            image.save(p.stdin, 'BMP')
+#            p.stdin.write(image.tostring('BMP'))
+#
+##            im = Image.fromarray(numpy.uint32(numpy.random.randn(100,100)), mode='RGB')
+##            print im
+##            im.save(p.stdin, 'BMP')
+##            p.stdin.write(im.tostring('BMP'))
+#
+#
+#        p.stdin.close()
+#        del p
 
 if __name__ == '__main__':
     print 'version:', get_ffmpeg_version()
@@ -320,3 +427,8 @@ if __name__ == '__main__':
     print 'formats:', get_formats()
     print 'pix_fmts:', get_pixel_formats()
     print 'info of video:', get_info('test.mp4')
+    ov = InputVideoStream()
+    ov.open('test.mp4')
+    ov = OutVideoStream()
+    ov.open('test.avi')
+    
