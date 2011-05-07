@@ -11,10 +11,6 @@
 ##################################################################################
 #
 #    TODO:
-#       * encode each frame from stdin(python push it in callback)
-#         * currently, ffmpeg's image2pipe demuxer is very poor stability. so..
-#             a) to put mjpeg(JPEG) on ffmpeg's pipe for each frame
-#             b) all frame save to disk and read directly on the block by ffmpeg
 #       * transcode to other codec which has ffmpeg-command
 #       * support audio-stream
 #
@@ -376,49 +372,45 @@ class InputVideoStream:
         p.stdin.close()
         del p
 
-#class OutVideoStream:
-#    def __init__(self, path=None):
-#        self.rate = 15
-#        self.vcodec = 'bmp'
-#        self.filepath = 'test.avi'
-#        self.frames = 10
-#    def open(self, path):
-#        self.filepath = path
-#        cmd = [
-#            FFMPEG_BIN,
-#            '-y',
-#            '-r', '15',
-#            '-f', 'image2pipe',
-#            '-vcodec', 'bmp',
-#            '-bufsize', '3000000',
-#            '-i', '-', 
-#            '-vf', 'vflip',
-#            '-vcodec', 'rawvideo',
-#            self.filepath,
-#        ]
-#        p = sp.Popen(
-#            " ".join(cmd),
-#            stdin=sp.PIPE,
-#            stdout=sp.PIPE,
-##            stderr=sp.PIPE,
-#        )
-#        pathformat = "%04d.bmp"
-#        frames = 10
-#        for i in range(frames):
-#            path = pathformat % i
-#            image = Image.open(path)
-#            print path, image
-##            image.save(p.stdin, 'BMP')
-#            p.stdin.write(image.tostring('BMP'))
-#
-##            im = Image.fromarray(numpy.uint32(numpy.random.randn(100,100)), mode='RGB')
-##            print im
-##            im.save(p.stdin, 'BMP')
-##            p.stdin.write(im.tostring('BMP'))
-#
-#
-#        p.stdin.close()
-#        del p
+class OutVideoStream:
+    def __init__(self, path=None):
+        self.rate = 15
+        self.vcodec = 'bmp'
+        self.filepath = 'test.avi'
+        self.frames = 10
+    def open(self, path):
+        self.filepath = path
+        cmd = [
+            FFMPEG_BIN,
+            '-y',
+            '-pix_fmt', 'rgb24',
+            '-f', 'rawvideo',
+            '-s', '352x240',
+            '-i', '-', 
+            '-an',
+            '-vf', 'vflip',
+            '-pix_fmt', 'bgr24',
+            '-f', 'avi',
+            '-r', '25',
+            '-vcodec', 'rawvideo',
+            self.filepath,
+        ]
+        p = sp.Popen(
+            " ".join(cmd),
+            stdin=sp.PIPE,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        pathformat = "%04d.bmp"
+        frames = 300
+        for i in range(frames):
+            path = pathformat % i
+            image = Image.open(path)
+            p.stdin.write(image.tostring())
+
+
+        p.stdin.close()
+        del p
 
 if __name__ == '__main__':
     print 'version:', get_ffmpeg_version()
@@ -427,8 +419,8 @@ if __name__ == '__main__':
     print 'formats:', get_formats()
     print 'pix_fmts:', get_pixel_formats()
     print 'info of video:', get_info('test.mp4')
-    ov = InputVideoStream()
-    ov.open('test.mp4')
+    iv = InputVideoStream()
+    iv.open('test.mp4')
     ov = OutVideoStream()
     ov.open('test.avi')
     
