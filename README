@@ -1,5 +1,10 @@
 A frontend for ffmpeg using only pipes, not under GPL, but under BSD license.
 
+Features:
+  - get ffmpeg's infomation (versions,codecs,formats,pix_fmts,...)
+  - read frames from a video
+  - write a video within post frames in Python
+
 You can install and test pipeffmpeg as follows:
 
 	1. download libav(ffmpeg) binary or source and build that

@@ -311,8 +311,6 @@ def get_info(path_of_video):
     return dict(metadata=metadata, duration=duration)
 
 import numpy
-from PIL import Image
-import BmpImagePlugin
 
 import ctypes
 
@@ -331,96 +329,118 @@ class BitmapFileHeader(ctypes.LittleEndianStructure):
 def sread(fd,cobj):
     ctypes.memmove(ctypes.pointer(cobj),ctypes.c_char_p(fd.read(ctypes.sizeof(cobj))),ctypes.sizeof(cobj))
 
-import cStringIO as StringIO
 
 class InputVideoStream:
+    """to read a video to writeout by frames and audio stream"""
     def __init__(self, path=None):
         self.rate = 15
-        self.vcodec = 'rawvideo'
+        self.ivcodec = 'bmp'
         self.filepath = 'test.mp4'
         self.frames = 10
+        self.iformat = 'image2pipe'
+
     def open(self, path):
         cmd = [
             FFMPEG_BIN,
             '-i', self.filepath,
-            '-f', 'image2pipe',
-            '-vcodec', 'bmp',
+            '-f', self.iformat,
+            '-vcodec', self.ivcodec,
             '-' # it means output to pipe
         ]
-        p = sp.Popen(
+        self.p = sp.Popen(
             " ".join(cmd),
             stdin=sp.PIPE,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
         )
-        pathformat = "%04d.bmp"
-        i = 0
+    def readframe(self):
+    	"""post each frame as bmp image(iterator)"""
         while True:
-            path = pathformat % i
-            
             bmfheader = BitmapFileHeader()
-            sread(p.stdout, bmfheader)
-            if bmfheader.bfType != 0x4d42:
+            sread(self.p.stdout, bmfheader)
+            if bmfheader.bfType != 0x4d42: # the last frame is appended with some broken bytes
                 break
             # reconvert to python string
             bmp = ctypes.string_at(ctypes.pointer(bmfheader), ctypes.sizeof(bmfheader))
             # BitmapFileHeader and rest data
-            bmp += p.stdout.read(bmfheader.bfSize - ctypes.sizeof(bmfheader))
-            image = Image.open(StringIO.StringIO(bmp))
-            image.save(path)
-            i += 1
-        p.stdin.close()
-        del p
+            bmp += self.p.stdout.read(bmfheader.bfSize - ctypes.sizeof(bmfheader))
+            yield bmp
+
+        self.p.stdin.close()
+        del self.p
 
 class OutVideoStream:
+    """to write a video with posting each frame"""
     def __init__(self, path=None):
-        self.rate = 15
-        self.vcodec = 'bmp'
-        self.filepath = 'test.avi'
+        self.ipix_fmt = 'rgb24'
+        self.iformat = 'rawvideo'
+        self.filepath = 'test2.avi'
+        if path: self.filepath = path
+        self.isize = '352x240'
+        self.opix_fmt = 'bgr24'
         self.frames = 10
+        self.rate = 25
+        self.oformat = 'avi' # 'mp4'
+        self.ocodec = 'rawvideo' # 'huffyuv'
     def open(self, path):
         self.filepath = path
         cmd = [
             FFMPEG_BIN,
             '-y',
-            '-pix_fmt', 'rgb24',
-            '-f', 'rawvideo',
-            '-s', '352x240',
+            '-pix_fmt', self.ipix_fmt,
+            '-f', self.iformat,
+            '-s', self.isize,
             '-i', '-', 
             '-an',
             '-vf', 'vflip',
-            '-pix_fmt', 'bgr24',
-            '-f', 'avi',
-            '-r', '25',
-            '-vcodec', 'rawvideo',
+            '-pix_fmt', self.opix_fmt,
+            '-f', self.oformat,
+            '-r', str(self.rate),
+            '-vcodec', self.ocodec,
             self.filepath,
         ]
-        p = sp.Popen(
+        self.p = sp.Popen(
             " ".join(cmd),
             stdin=sp.PIPE,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
         )
-        pathformat = "%04d.bmp"
-        frames = 300
-        for i in range(frames):
-            path = pathformat % i
-            image = Image.open(path)
-            p.stdin.write(image.tostring())
 
+    def writeframe(self, frameraw):
+        self.p.stdin.write(frameraw)
 
-        p.stdin.close()
-        del p
+    def close(self):
+        self.p.stdin.close()
+        del self.p
 
 if __name__ == '__main__':
-    print 'version:', get_ffmpeg_version()
-    print 'info:', get_ffmpeg_info()
-    print 'codecs:', get_codecs()
-    print 'formats:', get_formats()
-    print 'pix_fmts:', get_pixel_formats()
-    print 'info of video:', get_info('test.mp4')
+#    print 'version:', get_ffmpeg_version()
+#    print 'info:', get_ffmpeg_info()
+#    print 'codecs:', get_codecs()
+#    print 'formats:', get_formats()
+#    print 'pix_fmts:', get_pixel_formats()
+#    print 'info of video:', get_info('test.mp4')
+
+    from PIL import Image
+    import BmpImagePlugin
+    import cStringIO as StringIO
+
+    # read a mp4 to output bmp files
     iv = InputVideoStream()
     iv.open('test.mp4')
+    pathformat = "%04d.bmp"
+    for i, bmp in enumerate(iv.readframe()):
+        path = pathformat % i
+        image = Image.open(StringIO.StringIO(bmp))
+        image.save(path)
+
+    # write a avi within reading each frame from bmp file
     ov = OutVideoStream()
     ov.open('test.avi')
-    
+    frames = 300
+    for i in range(frames):
+        path = pathformat % i
+        image = Image.open(path)
+        ov.writeframe(image.tostring())
+    ov.close()
+
