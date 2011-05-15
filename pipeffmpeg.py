@@ -20,22 +20,49 @@
 #     * Get formats
 #     * Get pix_fmts
 #     * Get metadata from a video file
+#     * Read frames from a video
+#     * Write a video within post frames in Python
 """
 
 import subprocess as sp
 import os
 import sys
+import ctypes
 
 FFMPEG_BIN = 'ffmpeg'
 """ffmpeg's path
 
 if ffmpeg command doesn't exist in PATHs, you should change this."""
-_attempt_finished = False
 
+FFMPEG_DETECTED = False
+"""FFMPEG_BIN is detected?
+detecting is only 1 time.
+"""
+
+FFPROBE_BIN = 'ffprobe'
+"""ffprobe's path"""
+
+FFPROBE_DETECTED = False
+FFPROBE_EXISTS = False
+
+def _attempt_bin(bin):
+    global FFMPEG_DETECTED
+    if FFMPEG_DETECTED: return
+    try:
+        p = sp.Popen(
+            bin,
+            stdin=sp.PIPE,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        del p
+        return True
+    except EnvironmentError:
+        return False
 
 def _attempt_ffmpeg():
-    global _attempt_finished
-    if _attempt_finished: return
+    global FFMPEG_DETECTED
+    if FFMPEG_DETECTED: return
     try:
         p = sp.Popen(
             FFMPEG_BIN,
@@ -44,15 +71,21 @@ def _attempt_ffmpeg():
             stderr=sp.PIPE,
         )
         del p
-        _attempt_finished = True
+        FFMPEG_DETECTED = True
     except EnvironmentError:
         print "pyffmpeg: you should set pyffmpeg.FFMPEG_BIN as a valid 'ffmpeg' command path"
         raise
 
-def get_pipe2(option=None):
+def _attempt_ffprobe():
+    global FFPROBE_DETECTED, FFPROBE_EXISTS
+    if FFPROBE_DETECTED: return
+    if _attempt_bin(FFPROBE_BIN): FFPROBE_EXISTS = True
+    FFPROBE_DETECTED = True
+
+def get_pipe2(bin=FFMPEG_BIN, option=None):
     '''get pipes from ffmpeg process'''
     _attempt_ffmpeg()
-    cmd = [FFMPEG_BIN]
+    cmd = [bin]
     if option:
         if type(option) == str:
             cmd.append(option)
@@ -259,7 +292,20 @@ def get_info(path_of_video):
 
     to
 
-    {'duration': {'duration': '00:01:15.26', 'start': '0.000000', 'bitrate': '602 kb/s', 'streams': [{'p
+    ffprobe: {'TAG:encoder': 'Lavf52.102.0', 'format_long_name': 'QuickTime/MPEG-4/Motion JPEG 2000 format',
+    'start_time': '0.000000', 'nb_streams': '1', 'TAG:creation_time': '1970-01-01 00:00:00',
+    'format_name': 'mov,mp4,m4a,3gp,3g2,mj2', 'filename': 'test.mp4', 'TAG:compatible_brands': 'isomiso2
+    avc1mp41', 'bit_rate': '489116.000000', 'streams': [{'pix_fmt': 'yuv420p', 'index': '0', 'TAG:langua
+    ge': 'und', 'codec_tag': '0x31637661', 'r_frame_rate': '30/1', 'start_time': '0.000000', 'time_base'
+    : '1/30', 'codec_tag_string': 'avc1', 'codec_type': 'video', 'has_b_frames': '0', 'width': '352', 'T
+    AG:creation_time': '1970-01-01 00:00:00', 'codec_long_name': 'H.264 / AVC / MPEG-4 AVC / MPEG-4 part
+     10', 'codec_name': 'h264', 'duration': '10.000000', 'height': '240', 'nb_frames': '300', 'codec_tim
+    e_base': '1/60', 'avg_frame_rate': '30/1'}], 'duration': '10.000000', 'TAG:major_brand': 'isom', 'TA
+    G:minor_version': '512', 'size': '611396.000000'}
+
+    or
+
+    ffmpeg -i {'duration': {'duration': '00:01:15.26', 'start': '0.000000', 'bitrate': '602 kb/s', 'streams': [{'p
     ix_fmt': 'yuv420p', 'bitrate': '511 kb/s', 'tbr': '30 tbr', 'raw': ['Video', 'h264', 'yuv420p', '512
     x384', '511 kb/s', '30 fps', '30 tbr', '30k tbn', '60 tbc'], 'codec': 'h264', 'fps': '30 fps', 'tbn'
     : '30k tbn', 'tbc': '60 tbc', 'type': 'Video', 'size': '512x384'}, {'Hz': '48000 Hz', 'ch': 'stereo'
@@ -267,6 +313,40 @@ def get_info(path_of_video):
     b/s'], 'codec': 'aac', 'type': 'Audio'}]}, 'metadata': {'major_brand': 'isom', 'creation_time': '201
     0-11-20 10:39:32', 'compatible_brands': 'isomavc1', 'minor_version': '1'}}
     """
+    global FFMPEG_DETECTED, FFPROBE_EXISTS
+    _attempt_ffprobe()
+    if FFPROBE_EXISTS:
+        p = sp.Popen(
+            " ".join([FFPROBE_BIN, '-show_format', '-show_streams', path_of_video]),
+            stdin=sp.PIPE,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+#        result = []
+        result = dict(streams=[])
+        stream = {}
+        is_stream = is_format = False
+        for line in p.stdout.readlines():
+            #result.append(line)
+            line = line.strip()
+            if line == '[STREAM]':
+                is_stream = True
+                continue
+            if line == '[/STREAM]':
+                is_stream = False
+                result['streams'].append(stream)
+                stream = {}
+                continue
+            if line == '[FORMAT]':
+                is_format = True
+                continue
+            if line == '[/FORMAT]':
+                break
+            tokens = line.split('=')
+            if is_stream: stream[tokens[0]] = tokens[1]
+            if is_format: result[tokens[0]] = tokens[1]
+        print result
+        return result
     result = {}
     at_metadata = True
     metadata = {}
@@ -310,11 +390,6 @@ def get_info(path_of_video):
 
     return dict(metadata=metadata, duration=duration)
 
-import numpy
-
-import ctypes
-
-#from ctypes import *
 
 class BitmapFileHeader(ctypes.LittleEndianStructure):
     _pack_ = 2
@@ -410,16 +485,25 @@ class OutVideoStream:
         self.p.stdin.write(frameraw)
 
     def close(self):
-        self.p.stdin.close()
-        del self.p
+        if hasattr(self, 'p'):
+            self.p.stdin.close()
+            del self.p
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if hasattr(self, 'p'):
+            self.close()
+
 
 if __name__ == '__main__':
-#    print 'version:', get_ffmpeg_version()
-#    print 'info:', get_ffmpeg_info()
-#    print 'codecs:', get_codecs()
-#    print 'formats:', get_formats()
-#    print 'pix_fmts:', get_pixel_formats()
-#    print 'info of video:', get_info('test.mp4')
+    print 'version:', get_ffmpeg_version()
+    print 'info:', get_ffmpeg_info()
+    print 'codecs:', get_codecs()
+    print 'formats:', get_formats()
+    print 'pix_fmts:', get_pixel_formats()
+    print 'info of video:', get_info('test.mp4')
 
     from PIL import Image
     import BmpImagePlugin
@@ -434,13 +518,15 @@ if __name__ == '__main__':
         image = Image.open(StringIO.StringIO(bmp))
         image.save(path)
 
+    frames = i + 1 # count = last + 1
+
     # write a avi within reading each frame from bmp file
     ov = OutVideoStream()
-    ov.open('test.avi')
-    frames = 300
-    for i in range(frames):
-        path = pathformat % i
-        image = Image.open(path)
-        ov.writeframe(image.tostring())
-    ov.close()
-
+    with ov:
+        ov.rate=30
+        ov.open('test.avi')
+        for i in range(frames):
+            path = pathformat % i
+            image = Image.open(path)
+            ov.writeframe(image.tostring())
+    # ov.close() #in 'with' statements, auto-called
