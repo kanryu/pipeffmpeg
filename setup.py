@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+import os
+from distutils.core import setup
+
+version='0.1.0'
+README = os.path.join(os.path.dirname(__file__), 'README')
+long_description = open(README).read() + '\n\n'
+
+setup(
+    name='pipeffmpeg',
+    version=version,
+    description=('A frontend for ffmpeg using only pipes, to read/write/convert videos by each frame'),
+    long_description=long_description,
+    classifiers=[
+        'License :: OSI Approved :: BSD License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python',
+        'Topic :: Multimedia :: Video',
+    ],
+    keywords='video ffmpeg read write convert',
+    author='KATO Kanryu',
+    author_email='k.kanryu@gmail.com',
+    url='http://knivez.homelinux.org/pipeffmpeg/',
+    license='BSD',
+    py_modules=['pipeffmpeg'],
+    package_data={'pipeffmpeg': ['test.mp4']},
+    data_files=[('', ['test.mp4'])],
+)
