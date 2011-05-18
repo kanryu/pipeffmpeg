@@ -1,20 +1,20 @@
-A frontend for ffmpeg using only pipes,
-to read/write/convert videos by each frame,
+A frontend for ffmpeg(libav) using only pipes,
+to encode/decode/convert videos by each frame,
 not under GPL, but under BSD license.
 
 Features:
   - get ffmpeg's infomation (versions,codecs,formats,pix_fmts,...)
-  - read frames from a video
-  - write a video within post frames in Python
+  - decode frames from a video
+  - encode a video within post frames in Python
 
 You can install and test pipeffmpeg as follows:
 
-	1. download libav(ffmpeg) binary or source and build that
-	   (not necessary as shared-library).
+1. download libav(ffmpeg) binary or source and build that
+   (not necessary as shared-library).
 
-	2. set bin/ffmpeg or ffmpeg.exe(under Windows) into PATH environment
+2. set bin/ffmpeg or ffmpeg.exe(under Windows) into PATH environment
 
-	3. download pipeffmpeg.py to your current directory or site-packages
+3. download pipeffmpeg.py to your current directory or site-packages
 
 
 Please report issues as well as configuration details for your working 

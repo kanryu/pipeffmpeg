@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ##################################################################################
-# PipeFFmpeg v0.1.0
+# PipeFFmpeg v0.1.1
 #
 # Copyright (C) 2011 KATO Kanryu <k.kanryu@gmail.com>
 #
