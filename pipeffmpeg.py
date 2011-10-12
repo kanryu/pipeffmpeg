@@ -415,6 +415,7 @@ class InputVideoStream:
         self.iformat = 'image2pipe'
 
     def open(self, path):
+        self.filepath = path
         cmd = [
             FFMPEG_BIN,
             '-i', self.filepath,
