@@ -108,7 +108,7 @@ def get_pipe3(option=None):
         if type(option) == list:
             cmd += option
     return sp.Popen(
-        " ".join(cmd),
+        cmd,
         stdin=sp.PIPE,
         stdout=sp.PIPE,
         stderr=sp.PIPE,
@@ -317,7 +317,7 @@ def get_info(path_of_video):
     _attempt_ffprobe()
     if FFPROBE_EXISTS:
         p = sp.Popen(
-            " ".join([FFPROBE_BIN, '-show_format', '-show_streams', path_of_video]),
+            [FFPROBE_BIN, '-show_format', '-show_streams', path_of_video],
             stdin=sp.PIPE,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
@@ -423,7 +423,7 @@ class InputVideoStream:
             '-' # it means output to pipe
         ]
         self.p = sp.Popen(
-            " ".join(cmd),
+            cmd,
             stdin=sp.PIPE,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
@@ -475,7 +475,7 @@ class OutVideoStream:
             self.filepath,
         ]
         self.p = sp.Popen(
-            " ".join(cmd),
+            cmd,
             stdin=sp.PIPE,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
