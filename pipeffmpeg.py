@@ -28,6 +28,8 @@ import subprocess as sp
 import os
 import sys
 import ctypes
+import re
+import select
 
 FFMPEG_BIN = 'ffmpeg'
 """ffmpeg's path
@@ -45,20 +47,6 @@ FFPROBE_BIN = 'ffprobe'
 FFPROBE_DETECTED = False
 FFPROBE_EXISTS = False
 
-def _attempt_bin(bin):
-    global FFMPEG_DETECTED
-    if FFMPEG_DETECTED: return
-    try:
-        p = sp.Popen(
-            bin,
-            stdin=sp.PIPE,
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-        )
-        del p
-        return True
-    except EnvironmentError:
-        return False
 
 def _attempt_ffmpeg():
     global FFMPEG_DETECTED
@@ -77,10 +65,29 @@ def _attempt_ffmpeg():
         raise
 
 def _attempt_ffprobe():
-    global FFPROBE_DETECTED, FFPROBE_EXISTS
+    global FFPROBE_DETECTED, FFPROBE_EXISTS, FFPROBE_BIN
     if FFPROBE_DETECTED: return
-    if _attempt_bin(FFPROBE_BIN): FFPROBE_EXISTS = True
-    FFPROBE_DETECTED = True
+    try:
+        p = sp.Popen(
+            FFPROBE_BIN,
+            stdin=sp.PIPE,
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+        )
+        del p
+        FFPROBE_EXISTS = True
+    except EnvironmentError:
+        return
+
+def _eintr_retry_call(func, *args):
+    while True:
+        try:
+            return func(*args)
+        except (OSError, IOError) as e:
+            if e.errno == errno.EINTR:
+                continue
+            raise
+
 
 def get_pipe2(bin=FFMPEG_BIN, option=None):
     '''get pipes from ffmpeg process'''
@@ -132,33 +139,47 @@ def _plugins_gen(option, sep=' ------', stdpipe='stderr'):
 
 class Codec:
     '''video/audio/subtitle codecs supported by ffmpeg'''
-    types = {'V': 'video', 'A': 'audio', 'S': 'subtitle'}
-    def __init__(self, line):
-        self.decoding = line[1] == 'D'
-        self.encoding = line[2] == 'E'
-        self.type = Codec.types[line[3]]
-        self.draw_horiz_band  = line[4] == 'S'
-        self.direct_rendering = line[5] == 'D'
-        self.frame_truncation = line[6] == 'T'
-        self.name = line[8:]
+    types = {'V': 'video', 'A': 'audio', 'D': 'digital-content', 'S': 'subtitle'}
+    def __init__(self, opt, codec, summary, decoders, encoders):
+        self.decoding = opt[1] == 'D'
+        self.encoding = opt[2] == 'E'
+        self.type = Codec.types[opt[3]]
+        self.draw_horiz_band  = opt[4] == 'S'
+        self.direct_rendering = opt[5] == 'D'
+        self.frame_truncation = opt[6] == 'T'
+        self.name = codec
+        self.desc = summary
+        self.decoders = decoders
+        self.encoders = encoders
 
     def __repr__(self):
-        return '<Codec %s for %s>' % (self.name, self.type)
+        return '<Codec %s for %s, %s|%s|%s>' % (self.name, self.type, self.desc, self.decoders, self.encoders)
 
 def get_codecs():
     '''get codecs for ffmpeg'''
     result = {}
     for line in _plugins_gen('-codecs', sep=' ------', stdpipe='stdout'):
-        result[line[8:]] = Codec(line)
+        m = re.match("( [A-Z.]+) (\w+) +(.+)", line)
+        m2s = re.split("\(", m.group(3))
+        decoders = None
+        encoders = None
+        summary = ''
+        for m2 in m2s:
+            if m2[:8] == 'decoders':   decoders = m2[10:-3]
+            elif m2[:8] == 'encoders': encoders = m2[10:-3]
+            elif summary != '':        summary += '('+m2
+            else:                      summary += m2
+        result[m.group(2)] = Codec(m.group(1), m.group(2), summary, decoders, encoders)
     return result
 
 
 class Format:
     '''file formats supported by ffmpeg'''
-    def __init__(self, line):
-        self.demuxing = line[1] == 'D'
-        self.muxing   = line[2] == 'E'
-        self.name = line[4:]
+    def __init__(self, opt, format, summary):
+        self.demuxing = opt[1] == 'D'
+        self.muxing   = opt[2] == 'E'
+        self.name = format
+        self.desc = summary
 
     def __repr__(self):
         muxing = ''
@@ -170,7 +191,8 @@ def get_formats():
     '''get codecs for ffmpeg'''
     result = {}
     for line in _plugins_gen('-formats', sep=' --', stdpipe='stdout'):
-        result[line[4:]] = Format(line)
+        m = re.match("(.{3}) ([\w,]+) *(.+)?", line)
+        result[m.group(2)] = Format(m.group(1), m.group(2), m.group(3))
     return result
 
 
@@ -345,7 +367,6 @@ def get_info(path_of_video):
             tokens = line.split('=')
             if is_stream: stream[tokens[0]] = tokens[1]
             if is_format: result[tokens[0]] = tokens[1]
-        print result
         return result
     result = {}
     at_metadata = True
@@ -402,7 +423,9 @@ class BitmapFileHeader(ctypes.LittleEndianStructure):
     ]
 
 def sread(fd,cobj):
-    ctypes.memmove(ctypes.pointer(cobj),ctypes.c_char_p(fd.read(ctypes.sizeof(cobj))),ctypes.sizeof(cobj))
+    sz = ctypes.sizeof(cobj)
+    buff = fd.read(sz)
+    ctypes.memmove(ctypes.pointer(cobj),ctypes.c_char_p(buff),sz)
 
 
 class InputVideoStream:
@@ -425,12 +448,16 @@ class InputVideoStream:
         ]
         self.p = sp.Popen(
             cmd,
-            stdin=sp.PIPE,
+            stdin=None,
             stdout=sp.PIPE,
             stderr=sp.PIPE,
+            bufsize=4*1024*1024
         )
+        self.p.stderr.close()
+
     def readframe(self):
-    	"""post each frame as bmp image(iterator)"""
+        """post each frame as bmp image(iterator)"""
+        i = 0
         while True:
             bmfheader = BitmapFileHeader()
             sread(self.p.stdout, bmfheader)
@@ -440,9 +467,12 @@ class InputVideoStream:
             bmp = ctypes.string_at(ctypes.pointer(bmfheader), ctypes.sizeof(bmfheader))
             # BitmapFileHeader and rest data
             bmp += self.p.stdout.read(bmfheader.bfSize - ctypes.sizeof(bmfheader))
+            i+=1
             yield bmp
 
-        self.p.stdin.close()
+#        if self.p.stdout != None:
+#            self.p.stdout.close()
+#        print "del"
         del self.p
 
 class OutVideoStream:
@@ -478,9 +508,10 @@ class OutVideoStream:
         self.p = sp.Popen(
             cmd,
             stdin=sp.PIPE,
-            stdout=sp.PIPE,
+            stdout=None,
             stderr=sp.PIPE,
         )
+        self.p.stderr.close()
 
     def writeframe(self, frameraw):
         self.p.stdin.write(frameraw)
@@ -505,7 +536,7 @@ if __name__ == '__main__':
     print 'formats:', get_formats()
     print 'pix_fmts:', get_pixel_formats()
     print 'info of video:', get_info('test.mp4')
-
+    
     from PIL import Image
     import BmpImagePlugin
     import cStringIO as StringIO
@@ -515,19 +546,26 @@ if __name__ == '__main__':
     iv.open('test.mp4')
     pathformat = "%04d.bmp"
     for i, bmp in enumerate(iv.readframe()):
+        if bmp == None or len(bmp) == 0: break
+        print "read frames({0} in {1}bytes)".format(i, len(bmp))
         path = pathformat % i
         image = Image.open(StringIO.StringIO(bmp))
         image.save(path)
+        del image
 
     frames = i + 1 # count = last + 1
+    print "readframes ended."
 
     # write a avi within reading each frame from bmp file
     ov = OutVideoStream()
     with ov:
         ov.rate=30
         ov.open('test.avi')
+        ov.p.stderr.close()
         for i in range(frames):
             path = pathformat % i
+            print "write frames({0},{1})".format(i, frames)
             image = Image.open(path)
             ov.writeframe(image.tostring())
     # ov.close() #in 'with' statements, auto-called
+    print "writeframes ended."
