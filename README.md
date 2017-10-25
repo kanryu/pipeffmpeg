@@ -18,6 +18,10 @@ You can install and test pipeffmpeg as follows:
  2. set bin/ffmpeg or ffmpeg.exe(under Windows) into PATH environment
  3. download pipeffmpeg.py into your current directory or site-packages
 
+pipeffmpeg (currently version 0.1.1) is also available at PyPI
+
+> pip install pipeffmpeg
+
 Please report issues as well as configuration details for your working 
 PipeFFmpeg installations at <k.kanryu@gmail.com>
 
